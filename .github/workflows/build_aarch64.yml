@@ -16,70 +16,31 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3.7.0
 
-      # 3. 使用 Docker 在模拟的 aarch64 环境中编译
-      # 这里对应原 workflow 中的 Setup 和 Configure/Build 步骤
       - name: Build inside Alpine Linux Container
-        uses: addnab/docker-run-action@v3
-        with:
-          image: arm64v8/alpine:edge
-          # 将当前源码目录挂载到容器内的 /work
-          options: -v ${{ github.workspace }}:/work -w /work
-          run: |
-            echo "Installing dependencies..."
-            # 安装编译工具和依赖库的静态版本 (*-static)
-            # 对应原 workflow 的 apt-get install，但换成了 apk
-            apk add --no-cache \
-              build-base \
-              autoconf \
-              automake \
-              libtool \
-              pkgconf \
-              gettext-dev \
-              git \
-              openssl-dev openssl-libs-static \
-              c-ares-dev c-ares-static \
-              libssh2-dev libssh2-static \
-              sqlite-dev sqlite-static \
-              zlib-dev zlib-static \
-              expat-dev expat-static
-
-            echo "Running autoreconf..."
-            autoreconf -i
-
-            echo "Configuring..."
-            # 配置参数详解：
-            # --enable-static / --disable-shared: 强制静态链接
-            # --disable-bittorrent: 禁用 BT (你的需求)
-            # --without-gnutls --with-openssl: 使用 OpenSSL
-            # --host: 虽在容器内，显式指定 host 有助于 config 识别
-            # LDFLAGS="-static": 告诉编译器生成静态二进制文件
-            ./configure \
-              --host=aarch64-alpine-linux-musl \
-              --enable-static \
-              --disable-shared \
-              --disable-bittorrent \
-              --without-gnutls \
-              --with-openssl \
-              --with-libexpat \
-              --without-libxml2 \
-              --with-libssh2 \
-              --with-sqlite3 \
-              --with-ca-bundle=/etc/ssl/certs/ca-certificates.crt \
-              CXXFLAGS="-Os -s" \
-              LDFLAGS="-static" \
-              PKG_CONFIG="pkgconf --static"
-
-            echo "Building..."
-            make -j$(nproc)
-
-            echo "Stripping..."
-            # 去除符号表，减小体积
-            strip src/aria2c
-
-            echo "Verifying..."
-            # 验证生成的文件信息
-            file src/aria2c
-            ls -lh src/aria2c
+        run: |
+          docker run --rm \
+            --platform linux/arm64 \
+            -v ${{ github.workspace }}:/work \
+            -w /work \
+            arm64v8/alpine:edge \
+            sh -c "
+              apk add --no-cache \
+                build-base autoconf automake libtool pkgconf gettext-dev \
+                git openssl-dev openssl-libs-static c-ares-dev c-ares-static \
+                libssh2-dev libssh2-static sqlite-dev sqlite-static \
+                zlib-dev zlib-static expat-dev expat-static
+              
+              autoreconf -i
+              ./configure \
+                --host=aarch64-alpine-linux-musl \
+                --enable-static --disable-shared --disable-bittorrent \
+                --without-gnutls --with-openssl --with-libexpat \
+                --without-libxml2 --with-libssh2 --with-sqlite3 \
+                CXXFLAGS='-Os -s' LDFLAGS='-static' PKG_CONFIG='pkgconf --static'
+              
+              make -j\$(nproc)
+              strip src/aria2c
+            "
 
       # 4. 上传 Artifact
       - name: Upload Artifact
